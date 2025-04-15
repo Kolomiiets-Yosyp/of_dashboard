@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card stats-card">
+            <div class="card-body">
+                <h5 class="card-title">User Statistics Overview</h5>
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Posts Made (24h)</th>
+                                <th>Scheduled Posts</th>
+                                <th>New Followers (Today)</th>
+                                <th>New Followers (Yesterday)</th>
+                                <th>Tracking Link Subscriptions</th>
+                                <th>New Organic Followers</th>
+                                <th>Mentions Today</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in user_data %}
+                            <tr>
+                                <td>
+    <a href="{% url 'dashboard:user_dashboard' user.id %}">{{ user.username }}</a>
+                                </td>
+                                <td>{{ user.posts_difference }}</td>
+                                <td>{{ user.scheduled_posts }}</td>
+                                <td>{{ user.followers_today }}</td>
+                                <td>{{ user.followers_yesterday }}</td>
+                                <td>{{ user.tracking_subscriptions }}</td>
+                                <td>{{ user.new_followers }}</td>
+                                <td>{{ user.tags_today }}</td>
+
+                            </tr>
+
+                            {% endfor %}
+
+                        </tbody>
+<button class="btn btn-success start-script">GO</button>
+                    </table>
+<a href="{% url 'dashboard:create_user' %}" class="btn btn-primary">+</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+    <script>
+document.querySelector('.start-script').addEventListener('click', function() {
+    fetch('{% url "dashboard:run_script" %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json',
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        alert(data.message);
+    })
+    .catch(error => {
+        alert('Error: ' + error);
+    });
+});
+</script>
+
+{% endblock %}

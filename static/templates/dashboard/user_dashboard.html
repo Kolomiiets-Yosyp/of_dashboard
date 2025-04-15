@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row">
+    <!-- Posts Statistics -->
+    <div class="col-md-3 mb-4">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Posts Made (24h)</h5>
+                <p class="card-text display-4">{{ posts_difference }}</p>
+                <small class="text-muted">Difference from scheduled</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scheduled Posts -->
+    <div class="col-md-3 mb-4">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Scheduled Posts</h5>
+                <p class="card-text display-4">{{ scheduled_posts.count }}</p>
+                <small class="text-muted">Upcoming posts</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Followers -->
+    <div class="col-md-3 mb-4">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <h5 class="card-title">New Followers</h5>
+                <p class="card-text display-4">{{ followers_today }}</p>
+                <small class="text-muted">Yesterday: {{ followers_yesterday }}</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tags -->
+    <div class="col-md-3 mb-4">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Mentions Today</h5>
+                <p class="card-text display-4">{{ tags_today }}</p>
+                <small class="text-muted">Total mentions today</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts -->
+<div class="row">
+    {% if posts_chart %}
+    <div class="col-md-12 mb-4">
+        <div class="chart-container">
+            {{ posts_chart|safe }}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if followers_chart %}
+    <div class="col-md-12 mb-4">
+        <div class="chart-container">
+            {{ followers_chart|safe }}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if tags_chart %}
+    <div class="col-md-12 mb-4">
+        <div class="chart-container">
+            {{ tags_chart|safe }}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Scheduled Posts Table -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card stats-card">
+            <div class="card-body">
+                <h5 class="card-title">Upcoming Scheduled Posts</h5>
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Number of Posts</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for post in scheduled_posts %}
+                            <tr>
+                                <td>{{ post.date }}</td>
+                                <td>{{ post.post_count }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+    <!-- Tags Comparison Table -->
+<!-- Tags Comparison Table -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card stats-card">
+            <div class="card-body">
+                <h5 class="card-title">Tags Comparison</h5>
+                <div class="d-flex justify-content-between mb-3">
+                    <span class="badge bg-primary">My Posts Tags: {{ post_tags_count }}</span>
+                    <span class="badge bg-success">Common Tags: {{ common_tags_count }}</span>
+                    <span class="badge bg-primary">Notification Tags: {{ notification_tags_count }}</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-bordered">
+                        <thead>
+                            <tr>
+                                <th class="text-center" style="width: 50%">Tags in My Posts</th>
+                                <th class="text-center" style="width: 50%">Tags in Notifications</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in tags_comparison %}
+                            <tr>
+                                <td class="{% if item.post_missing %}bg-warning{% else %}{{ item.post_class }}{% endif %}">
+                                    {% if item.post_time %}
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span>@{{ item.tag }}</span>
+                                            <small class="text-muted">{{ item.post_time|date:"Y-m-d H:i" }}</small>
+                                        </div>
+                                    {% elif item.post_missing %}
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span class="text-muted">(missing)</span>
+                                            <small class="text-muted">-</small>
+                                        </div>
+                                    {% endif %}
+                                </td>
+                                <td class="{% if item.notification_missing %}bg-warning{% else %}{{ item.notification_class }}{% endif %}">
+                                    {% if item.notification_time %}
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span>@{{ item.tag }}</span>
+                                            <small class="text-muted">{{ item.notification_time|date:"Y-m-d H:i" }}</small>
+                                        </div>
+                                    {% elif item.notification_missing %}
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span class="text-muted">(missing)</span>
+                                            <small class="text-muted">-</small>
+                                        </div>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
