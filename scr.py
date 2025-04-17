@@ -529,73 +529,72 @@ class NotificationTracker:
                 continue
             except Exception as e:
                 print(f"Помилка обробки даних: {e}")
-
-
-import time
-import json
-import requests
+from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from threading import Thread
 
-def generate_devtools_link():
-    try:
-        r = requests.get("http://localhost:9222/json")
-        tab_info = r.json()[0]
-        page_id = tab_info['id']
-        devtools_link = f"chrome-devtools://devtools/bundled/inspector.html?ws=localhost:9222/devtools/page/{page_id}"
-        return devtools_link
-    except Exception as e:
-        print("Не вдалося згенерувати DevTools URL:", e)
-        return None
+def connect_to_existing_chrome():
+    options = Options()
+    options.debugger_address = "localhost:9222"  # порт, на якому ти запустив Chrome
+    return webdriver.Chrome(options=options)
 
-def wait_for_user_login(driver, timeout=180):
-    print("Очікуємо, поки користувач залогіниться вручну...")
+
+def login_to_onlyfans(driver, email: str, password: str) -> bool:
+    """Виконує вхід на OnlyFans"""
     try:
-        WebDriverWait(driver, timeout).until(
+        driver.get("https://onlyfans.com/my/notifications/tags")
+
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "b-loginreg__form"))
+        )
+
+        # Введення email
+        email_field = driver.find_element(By.XPATH, "//input[@name='email']")
+        driver.execute_script("arguments[0].scrollIntoView();", email_field)
+        email_field.click()
+        email_field.clear()
+        email_field.send_keys(email)
+
+        # Введення пароля
+        password_field = driver.find_element(By.XPATH, "//input[@name='password']")
+        driver.execute_script("arguments[0].scrollIntoView();", password_field)
+        password_field.click()
+        password_field.clear()
+        password_field.send_keys(password)
+        print("!!!!!!!")
+        # Клік на кнопку входу
+        login_button = driver.find_element(By.XPATH, "//button[@type='submit']")
+        WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']")))
+        driver.execute_script("arguments[0].click();", login_button)
+
+        # Очікування завантаження списку сповіщень
+        WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.CLASS_NAME, "vue-recycle-scroller__item-wrapper"))
         )
-        print("Користувач успішно увійшов!")
         return True
     except Exception as e:
-        print("Логін не відбувся або капча не пройдена:", e)
+        print(f"Помилка входу: {e}")
         return False
 
 def process_user_account(tracker, user_id: int, email: str, password: str):
-    """Обробляє один акаунт користувача вручну через DevTools"""
+    """Обробляє один акаунт користувача (із ручним проходженням капчі через відкритий Chrome)"""
     print(f"\n=== Початок обробки акаунта {email} ===")
 
-    options = webdriver.ChromeOptions()
-    options.add_argument('--remote-debugging-port=9222')  # Для DevTools
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--start-maximized')
-    #options.add_argument('--headless=new')
-    driver = webdriver.Chrome(options=options)
-
     try:
-        # Відкриваємо логін сторінку
-        driver.get("https://onlyfans.com/my/notifications")
+        driver = connect_to_existing_chrome()
 
-        # Генеруємо DevTools посилання для користувача
-        devtools_link = generate_devtools_link()
-        if devtools_link:
-            print(f"🔗 Відкрий це посилання в Chrome (на своєму ПК):\n{devtools_link}")
-        else:
-            print("❌ DevTools посилання не згенеровано. Перевір порти/доступність.")
+        print("Очікується, що користувач самостійно пройде капчу у відкритому браузері...")
+        driver.get("https://onlyfans.com/my/notifications/tags")
 
-        # Чекаємо, поки користувач вручну залогіниться
-        if not wait_for_user_login(driver):
-            print(f"❌ Не вдалося увійти в акаунт {email}")
-            return
+        input("🔐 Після проходження капчі і входу в акаунт, натисни Enter, щоб продовжити...")
 
-        # Продовжуємо обробку
-        print(f"✅ Успішний вхід для {email}. Починаємо збір даних...")
+        # Перевіримо, що вхід успішний
+        driver.get("https://onlyfans.com/my/notifications/tags")
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "vue-recycle-scroller__item-wrapper"))
+        )
 
+        print(f"✅ Успішний вхід для {email}. Початок збору даних...")
         tracker.scrape_profile_posts(driver, user_id)
-
         pages = [
             ("subscribed", "https://onlyfans.com/my/notifications/subscribed"),
             ("tags", "https://onlyfans.com/my/notifications/tags")
@@ -607,26 +606,29 @@ def process_user_account(tracker, user_id: int, email: str, password: str):
             time.sleep(5)
             tracker.process_page(driver, user_id, page_type)
 
-        print(f"\nЗбір статистики для {email}...")
+        print(f"\n📊 Збір статистики для {email}...")
         tracker.process_tracking_links_page(driver, user_id)
         tracker.process_engagement_page(driver, user_id)
         tracker.process_queue_page(driver, user_id)
 
-        print(f"\n=== Завершено обробку акаунта {email} ===")
+        print(f"\n=== ✅ Завершено обробку акаунта {email} ===")
 
     except Exception as e:
-        print(f"Помилка при обробці акаунта {email}: {e}")
+        print(f"❌ Помилка при обробці акаунта {email}: {e}")
     finally:
-        driver.quit()
+        print("🧹 Готово. Можна переходити до наступного акаунта.")
         time.sleep(2)
+
 
 def main():
     tracker = NotificationTracker()
 
+    # Запускаємо обробник даних в окремому потоці
     processor_thread = Thread(target=tracker.data_processor, daemon=True)
     processor_thread.start()
 
     try:
+        # Отримуємо всіх користувачів з БД
         all_users = tracker.get_all_users()
         if not all_users:
             print("Не знайдено жодного користувача в базі даних")
@@ -634,6 +636,7 @@ def main():
 
         print(f"Знайдено {len(all_users)} користувачів для обробки")
 
+        # Обробляємо кожного користувача послідовно
         for user_id, email, password in all_users:
             process_user_account(tracker, user_id, email, password)
 
