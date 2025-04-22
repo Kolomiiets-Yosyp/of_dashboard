@@ -529,13 +529,6 @@ class NotificationTracker:
                 continue
             except Exception as e:
                 print(f"Помилка обробки даних: {e}")
-from selenium.webdriver.chrome.options import Options
-from selenium import webdriver
-
-def connect_to_existing_chrome():
-    options = Options()
-    options.debugger_address = "localhost:9222"  # порт, на якому ти запустив Chrome
-    return webdriver.Chrome(options=options)
 
 
 def login_to_onlyfans(driver, email: str, password: str) -> bool:
@@ -576,24 +569,25 @@ def login_to_onlyfans(driver, email: str, password: str) -> bool:
         return False
 
 def process_user_account(tracker, user_id: int, email: str, password: str):
-    """Обробляє один акаунт користувача (із ручним проходженням капчі через відкритий Chrome)"""
+    """Обробляє один акаунт користувача"""
     print(f"\n=== Початок обробки акаунта {email} ===")
 
+    options = webdriver.ChromeOptions()
+    options.add_argument('--remote-debugging-port=9222')  # Відкриває порт для дебагу
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    #options.add_argument('--disable-gpu')
+    options.add_argument('--start-maximized')
+    #options.add_argument('--headless=new')
+
+    driver = webdriver.Chrome(options=options)
+
     try:
-        driver = connect_to_existing_chrome()
+        if not login_to_onlyfans(driver, email, password):
+            print(f"Не вдалося увійти для акаунта {email}, пропускаємо")
+            return
 
-        print("Очікується, що користувач самостійно пройде капчу у відкритому браузері...")
-        driver.get("https://onlyfans.com/my/notifications/tags")
-
-        input("🔐 Після проходження капчі і входу в акаунт, натисни Enter, щоб продовжити...")
-
-        # Перевіримо, що вхід успішний
-        driver.get("https://onlyfans.com/my/notifications/tags")
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "vue-recycle-scroller__item-wrapper"))
-        )
-
-        print(f"✅ Успішний вхід для {email}. Початок збору даних...")
+        print(f"Успішний вхід для {email}. Початок збору даних...")
         tracker.scrape_profile_posts(driver, user_id)
         pages = [
             ("subscribed", "https://onlyfans.com/my/notifications/subscribed"),
@@ -606,18 +600,18 @@ def process_user_account(tracker, user_id: int, email: str, password: str):
             time.sleep(5)
             tracker.process_page(driver, user_id, page_type)
 
-        print(f"\n📊 Збір статистики для {email}...")
+        print(f"\nЗбір статистики для {email}...")
         tracker.process_tracking_links_page(driver, user_id)
         tracker.process_engagement_page(driver, user_id)
         tracker.process_queue_page(driver, user_id)
 
-        print(f"\n=== ✅ Завершено обробку акаунта {email} ===")
+        print(f"\n=== Завершено обробку акаунта {email} ===")
 
     except Exception as e:
-        print(f"❌ Помилка при обробці акаунта {email}: {e}")
+        print(f"Помилка при обробці акаунта {email}: {e}")
     finally:
-        print("🧹 Готово. Можна переходити до наступного акаунта.")
-        time.sleep(2)
+        driver.quit()
+        time.sleep(2)  # Невелика пауза між акаунтами
 
 
 def main():
