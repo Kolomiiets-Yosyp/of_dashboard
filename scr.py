@@ -1,6 +1,10 @@
 import sqlite3
 from datetime import datetime, timedelta
+import os
+import django
 
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "of_dashboard.settings")  # заміни на назву твого проєкту
+django.setup()
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -10,11 +14,16 @@ import time
 from typing import Set, Tuple, List
 from threading import Thread, Lock
 import queue
+from dashboard.models import Users  # імпортуємо модель
 
-# Словник для конвертації українських місяців
 UKR_MONTHS = {
+    # Українські місяці
     'січ': 1, 'лют': 2, 'бер': 3, 'квіт': 4, 'трав': 5, 'черв': 6,
-    'лип': 7, 'сер': 8, 'вер': 9, 'жов': 10, 'лис': 11, 'гру': 12
+    'лип': 7, 'сер': 8, 'вер': 9, 'жов': 10, 'лис': 11, 'гру': 12,
+
+    # Англійські місяці (скорочення)
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
 }
 
 
@@ -186,22 +195,47 @@ class NotificationTracker:
     def parse_of_date(self, date_str: str) -> datetime:
         """Конвертує дату OnlyFans у об'єкт datetime"""
         try:
-            parts = date_str.replace(',', '').split()
+            date_str = date_str.replace(',', '').strip()
+            parts = date_str.split()
 
-            if len(parts) == 3:  # Формат "22 бер, 16:17"
-                day, month_ukr, time_part = parts
-                year = datetime.now().year
-            elif len(parts) == 4:  # Формат "22 бер 2023, 16:17"
-                day, month_ukr, year, time_part = parts
+            # 🇺🇦 Український формат
+            if parts[1].lower() in UKR_MONTHS:
+                if len(parts) == 3:
+                    day, month_str, time_part = parts
+                    year = datetime.now().year
+                elif len(parts) == 4:
+                    day, month_str, year, time_part = parts
+                else:
+                    raise ValueError("Формат дати не відповідає українському стилю")
+
+                hour, minute = map(int, time_part.split(':'))
+                return datetime(int(year), UKR_MONTHS[month_str.lower()], int(day), hour, minute)
+
+            # 🇬🇧 Англійський формат
+            elif parts[0].lower() in UKR_MONTHS:
+                if len(parts) == 4:
+                    month_str, day, time_part, meridiem = parts
+                    year = datetime.now().year
+                elif len(parts) == 5:
+                    month_str, day, year, time_part, meridiem = parts
+                else:
+                    raise ValueError("Формат дати не відповідає англійському стилю")
+
+                hour, minute = map(int, time_part.split(':'))
+
+                # AM/PM формат
+                if meridiem.lower() == 'pm' and hour != 12:
+                    hour += 12
+                elif meridiem.lower() == 'am' and hour == 12:
+                    hour = 0
+
+                return datetime(int(year), UKR_MONTHS[month_str.lower()], int(day), hour, minute)
+
             else:
-                raise ValueError(f"Невідомий формат дати: {date_str}")
+                raise ValueError("Невідомий місяць")
 
-            month = UKR_MONTHS[month_ukr.lower()]
-            hour, minute = map(int, time_part.split(':'))
-
-            return datetime(int(year), month, int(day), hour, minute)
         except Exception as e:
-            print(f"Помилка парсингу дати '{date_str}': {e}")
+            print(f"❌ Помилка парсингу дати '{date_str}': {e}")
             return None
 
     def is_within_30_days(self, date_obj: datetime) -> bool:
@@ -332,7 +366,9 @@ class NotificationTracker:
     def scrape_profile_posts(self, driver, user_id: int):
         """Обробляє сторінку профілю для збору тегів (@) з постів"""
         try:
-            driver.get("https://onlyfans.com/my/profile")
+            user = Users.objects.get(id=user_id)
+            profile_url = f"https://onlyfans.com/{user.name}"  # 🟢 URL з бази
+            driver.get(profile_url)
             WebDriverWait(driver, 30).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "dynamic-scroller-item"))
             )
@@ -360,10 +396,13 @@ class NotificationTracker:
                         post_text = post.find_element(By.CLASS_NAME, "b-post__text").text.strip()
 
                         # Знаходимо всі теги у пості
-                        tags = [tag.split('@')[1].split()[0] for tag in post_text.split() if tag.startswith('@')]
+                        tag_username = next(
+                            (tag.split('@')[1].split()[0] for tag in post_text.split() if tag.startswith('@')),
+                            None
+                        )
 
-                        # Зберігаємо кожен тег окремо
-                        for tag_username in tags:
+                        # Якщо тег знайдено — зберігаємо
+                        if tag_username:
                             self.save_post_tag(
                                 user_id=user_id,
                                 post_text=post_text,
@@ -573,7 +612,7 @@ def process_user_account(tracker, user_id: int, email: str, password: str):
     print(f"\n=== Початок обробки акаунта {email} ===")
 
     options = webdriver.ChromeOptions()
-    options.add_argument('--remote-debugging-port=9222')  # Відкриває порт для дебагу
+    #options.add_argument('--remote-debugging-port=9222')  # Відкриває порт для дебагу
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     #options.add_argument('--disable-gpu')

@@ -247,7 +247,7 @@ def user_dashboard(request, user_id):
             'notification_missing': post_time and not notification_time
         })
     context = {
-        'user': user,
+        'user': user.name,
         'id': user.id,
         'posts_difference': posts_difference,
         'scheduled_posts': scheduled_posts,
@@ -359,7 +359,7 @@ def general_dashboard(request):
         ).count()
 
         user_data.append({
-            'username': user.login,
+            'username': user.name,
             'id': user.id,  # Переконайтеся, що передаєте id користувач
             'posts_difference': posts_difference,
             'scheduled_posts': scheduled_posts,
@@ -399,7 +399,7 @@ from django.views.decorators.http import require_POST
 @require_POST
 def run_script(request):
     try:
-        subprocess.Popen(['python3', 'scr.py'])
+        subprocess.Popen(['python', 'scr.py'])
         return JsonResponse({'status': 'success', 'message': 'Script started!'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})

@@ -9,18 +9,23 @@
                     <h3 class="card-title text-center">Додати користувача</h3>
 
                     <form method="post">
-                        {% csrf_token %}
-                        <div class="mb-3">
-                            {{ form.login.label_tag }}
-                            {{ form.login }}
-                        </div>
-                        <div class="mb-3">
-                            {{ form.password.label_tag }}
-                            {{ form.password }}
-                        </div>
+    {% csrf_token %}
+    <div class="mb-3">
+        {{ form.name.label_tag }}
+        {{ form.name }}
+    </div>
+    <div class="mb-3">
+        {{ form.login.label_tag }}
+        {{ form.login }}
+    </div>
+    <div class="mb-3">
+        {{ form.password.label_tag }}
+        {{ form.password }}
+    </div>
 
-                        <button type="submit" class="btn btn-primary w-100">Створити</button>
-                    </form>
+    <button type="submit" class="btn btn-primary w-100">Створити</button>
+</form>
+
 
                     <a href="{% url 'dashboard:general_dashboard' %}" class="btn btn-secondary w-100 mt-3">Назад</a>
                 </div>
