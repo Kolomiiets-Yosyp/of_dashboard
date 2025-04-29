@@ -385,7 +385,7 @@ def create_user(request):
         form = UserForm(request.POST)
         if form.is_valid():
             form.save()
-            messages.success(request, "Користувач успішно створений!")
+            messages.success(request, "The user has been successfully created!")
             return redirect('dashboard:general_dashboard')  # Повернення на головну панель
     else:
         form = UserForm()
@@ -403,3 +403,37 @@ def run_script(request):
         return JsonResponse({'status': 'success', 'message': 'Script started!'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib import messages
+from .forms import PasswordChangeForm
+
+
+# Add this new view function
+def change_password(request, user_id):
+    user = get_object_or_404(Users, pk=user_id)
+
+    if request.method == 'POST':
+        form = PasswordChangeForm(request.POST)
+        if form.is_valid():
+            new_password = form.cleaned_data['new_password']
+            user.password = new_password
+            user.save()
+            messages.success(request, 'Password changed successfully!')
+            return redirect('dashboard:user_dashboard', user_id=user.id)
+    else:
+        form = PasswordChangeForm()
+
+    context = {
+        'form': form,
+        'user': user,
+    }
+    return render(request, 'dashboard/change_password.html', context)
+
+def delete_user(request, user_id):
+    user = get_object_or_404(Users, pk=user_id)
+    user.delete()
+    messages.success(request, 'User deleted successfully!')
+    return general_dashboard(request)
+

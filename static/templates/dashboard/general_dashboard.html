@@ -18,6 +18,8 @@
                                 <th>Tracking Link Subscriptions</th>
                                 <th>New Organic Followers</th>
                                 <th>Mentions Today</th>
+                                <th>Password</th>
+                                <th>Delete User</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -33,13 +35,21 @@
                                 <td>{{ user.tracking_subscriptions }}</td>
                                 <td>{{ user.new_followers }}</td>
                                 <td>{{ user.tags_today }}</td>
-
+                                <td><a href="{% url 'dashboard:change_password' user.id %}" class="btn btn-outline-dark">
+    <i class="fas fa-key"></i>
+</a></td>
+                                <td><a href="{% url 'dashboard:delete_user' user.id %}" class="btn btn-outline-danger">
+    <i class="fas fa-trash"></i>
+</a></td>
                             </tr>
 
                             {% endfor %}
 
                         </tbody>
 <button class="btn btn-success start-script">GO</button>
+                    <button style="float: right;" class="btn btn-info assistants-btn">
+                                <i class="fas fa-people-arrows"></i>
+                            </button>
                     </table>
 <a href="{% url 'dashboard:create_user' %}" class="btn btn-primary">+</a>
                 </div>

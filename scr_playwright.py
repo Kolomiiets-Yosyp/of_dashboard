@@ -1,11 +1,11 @@
 import asyncio
+import time
+
 from playwright.async_api import async_playwright
 import sqlite3
 from datetime import datetime, timedelta
 from threading import Lock
 from typing import Set, Tuple, List
-
-
 
 UKR_MONTHS = {
     'січ': 1, 'лют': 2, 'бер': 3, 'квіт': 4, 'трав': 5, 'черв': 6,
@@ -232,13 +232,13 @@ class OnlyFansScraper:
 
     async def login(self, page, email: str, password: str) -> bool:
         try:
-            await page.goto('https://onlyfans.com/?return_to=%2Flogin', timeout=60000)
-            await page.wait_for_selector('input[name="email"]', timeout=10000)
+            await page.goto('https://onlyfans.com/?return_to=%2Flogin', timeout=80000)
+            await page.wait_for_selector('input[name="email"]', timeout=80000)
             await page.fill('input[name="email"]', email)
             await page.fill('input[name="password"]', password)
             await page.click('button[at-attr="submit"]:not([disabled])')
             try:
-                await page.wait_for_selector('.g-avatar', timeout=10000)
+                await page.wait_for_selector('.g-avatar', timeout=80000)
             except:
                 print("Login failed")
                 return False
@@ -257,12 +257,12 @@ class OnlyFansScraper:
             # Скролимо до кінця, щоб завантажити всі пости
             print("Scrolling to load all posts...")
             scroll_attempts = 0
-            max_scroll_attempts = 20
+            max_scroll_attempts = 2
             last_height = 0
             while scroll_attempts < max_scroll_attempts:
                 current_height = await page.evaluate('document.body.scrollHeight')
                 await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 new_height = await page.evaluate('document.body.scrollHeight')
                 if new_height == last_height:
                     scroll_attempts += 1
@@ -276,13 +276,20 @@ class OnlyFansScraper:
             rows = await page.query_selector_all('tbody tr.m-responsive__reset-pb')
             for row in rows:
                 try:
+                    date_element = await row.query_selector('.b-top-statistic__link strong')
+                    post_date = None
+                    if date_element:
+                        date_str = await date_element.inner_text()
+                        post_date = self.tracker.parse_of_date(date_str)
+
                     text_element = await row.query_selector('.b-top-statistic__text p')
                     if text_element:
                         text = await text_element.inner_text()
                         found_usernames = re.findall(r'@([a-zA-Z0-9_.]+)', text)
-                        for username in found_usernames:
+                        if found_usernames:
+                            username = found_usernames[0].lower()  # Беремо перший тег
                             # Зберігаємо тег у БД через NotificationTracker
-                            self.tracker.save_post_tag(user_id, text, username.lower(), datetime.now())
+                            self.tracker.save_post_tag(user_id, text, username.lower(), post_date)
                 except Exception as e:
                     print(f"Error processing post: {e}")
             print(f"\nCompleted. Found tags in {len(rows)} posts.")
@@ -431,35 +438,244 @@ class OnlyFansScraper:
             print(f"Помилка обробки сторінки черги: {e}")
             return False
 
+    async def process_subscribed_notifications(self, page, user_id: int):
+        """Обробляє сторінку підписок з точним контролем скролу та збором даних"""
+        try:
+            # 1. Ініціалізація
+            await page.goto('https://onlyfans.com/my/notifications/subscribed', timeout=60000)
+            await page.wait_for_selector('.b-notifications__list__item', timeout=15000)
+
+            thirty_days_ago = (datetime.now() - timedelta(days=30)).date()
+            oldest_date_in_view = datetime.now().date()
+            scroll_attempts = 0
+            max_scroll_attempts = 8
+            processed_usernames = set()
+
+            # 2. Головний цикл обробки
+            while oldest_date_in_view > thirty_days_ago and scroll_attempts < max_scroll_attempts:
+                # 2.1. Отримання поточних елементів
+                notifications = await page.query_selector_all('.b-notifications__list__item')
+                if not notifications:
+                    break
+
+                # 2.2. Визначення найстарішої дати
+                current_oldest_date = datetime.now().date()
+                date_elements = await page.query_selector_all('.g-date span[title]')
+
+                for date_element in date_elements:
+                    try:
+                        date_str = await date_element.get_attribute('title')
+                        notification_date = self.parse_of_date(date_str).date()
+                        if notification_date < current_oldest_date:
+                            current_oldest_date = notification_date
+                    except:
+                        continue
+
+                oldest_date_in_view = current_oldest_date
+                print(f"Найстаріша дата у видимому діапазоні: {oldest_date_in_view}")
+
+                # 2.3. Обробка сповіщень
+                for item in notifications:
+                    try:
+                        # Отримання даних
+                        username_element = await item.query_selector('a[href*="/"]')
+                        username = await username_element.evaluate(
+                            'el => el.href.replace("https://onlyfans.com/", "").split("/")[0]')
+
+                        if username in processed_usernames:
+                            continue
+
+                        time_element = await item.query_selector('.g-date span')
+                        of_date_str = await time_element.get_attribute('title')
+                        notification_date = self.parse_of_date(of_date_str)
+
+                        # Збереження даних
+                        self.tracker.add_notification(
+                            user_id=user_id,
+                            notification_type="subscribed",
+                            content=f"{username} підписався {of_date_str}",
+                            timestamp=notification_date
+                        )
+                        processed_usernames.add(username)
+
+                    except Exception as e:
+                        print(f"Помилка обробки сповіщення: {e}")
+
+                # 2.4. Скрол та оновлення
+                await page.evaluate('window.scrollBy(0, document.documentElement.clientHeight)')
+                await asyncio.sleep(3)  # Чекаємо на завантаження нового контенту
+
+                scroll_attempts += 1
+                if scroll_attempts % 5 == 0:
+                    print(f"Скрол #{scroll_attempts}. Оброблено: {len(processed_usernames)}")
+
+            print(f"Завершено. Остання дата: {oldest_date_in_view}. Усього підписок: {len(processed_usernames)}")
+            return True
+
+        except Exception as e:
+            print(f"Критична помилка: {str(e)}")
+            return False
+
+    async def scrape_subscribed_notifications(self, page, user_id: int, notification_type: str, url: str, days_limit: int = 30):
+        try:
+            await page.goto(url, timeout=60000)
+            await page.wait_for_selector('[data-v-0e3f72a6]', timeout=20000)
+            last_index = -1
+            processed_indices = set()
+            start_time = datetime.now()
+            date_threshold = (datetime.now() - timedelta(days=days_limit)).date()
+
+            while True:
+                await page.wait_for_selector('[data-v-0e3f72a6][data-index]')
+                # 1. Збір поточних даних
+                current_items = await page.query_selector_all('[data-v-0e3f72a6][data-index]')
+                new_data = []
+
+                for item in current_items:
+                    try:
+                        index = int(await item.get_attribute('data-index'))
+                        if index in processed_indices:
+                            continue
+
+                        # Отримання даних з елементу
+                        username = await item.eval_on_selector('.g-user-name',
+                                                               'el => el?.textContent?.trim() || "Невідомий"')
+                        userlink = await item.eval_on_selector('.g-user-username',
+                                                               'el => el?.textContent?.trim() || ""')
+                        date_str = await item.eval_on_selector('.g-date span', 'el => el?.title || ""')
+
+                        # Парсинг дати
+                        try:
+                            item_date = self.tracker.parse_of_date(date_str).date()
+                            if item_date < date_threshold:
+                                print(f"Досягнуто {days_limit}-денний ліміт (остання дата: {item_date})")
+                                return True
+                        except:
+                            continue
+
+                        new_data.append({
+                            'index': index,
+                            'username': username,
+                            'userlink': userlink,
+                            'date': date_str
+                        })
+                        processed_indices.add(index)
+
+                    except Exception as e:
+                        print(f"Помилка обробки елементу {index}: {e}")
+
+                # 2. Збереження в БД
+                if new_data:
+                    for data in new_data:
+                        self.tracker.save_notification(
+                            user_id=user_id,
+                            username=data['userlink'][1:],
+                            notification_type=notification_type,
+                            content=f"{data['username']} ({data['userlink']}) - {data['date']}",
+                            of_date_str=data['date']
+                        )
+                    print(f"Додано {len(new_data)} нових записів (індекси: {[d['index'] for d in new_data]})")
+
+                # 3. Визначення останнього індексу
+                if current_items:
+                    last_item = current_items[-1]
+                    last_index = int(await last_item.get_attribute('data-index'))
+                    print(f"Останній індекс на сторінці: {last_index}")
+
+                # 4. Скрол до останнього елементу
+                if current_items:
+                    await last_item.scroll_into_view_if_needed()
+
+                    # Додаткова перевірка на нові елементи
+                    #new_height = await page.evaluate('document.body.scrollHeight')
+                    #await page.evaluate(f'window.scrollTo(0, {new_height})')
+                    await asyncio.sleep(1)
+                else:
+                    break
+
+                # 5. Перевірка на завершення
+                current_date = datetime.now().date()
+                if (current_date - start_time.date()).days > days_limit:
+                    print(f"Досягнуто ліміт у {days_limit} днів")
+                    break
+
+            print(f"Скрипт завершено. Усього оброблено {len(processed_indices)} підписок")
+            return True
+
+        except Exception as e:
+            print(f"Критична помилка: {str(e)}")
+            return False
 # === Основна асинхронна функція ===
 async def main():
     tracker = NotificationTracker()
     scraper = OnlyFansScraper(tracker)
     all_users = tracker.get_all_users()
+
     if not all_users:
         print("Не знайдено жодного користувача в базі даних")
         return
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        for user_id, email, password in all_users:
-            page = await browser.new_page()
+        # Налаштування браузера
+        browser = await p.chromium.launch(headless=False, timeout=60000)
+
+        async def login_tab(user_id, email, password):
+            """Обробка логіну в окремій вкладці"""
+            context = await browser.new_context()
+            page = await context.new_page()
             try:
-                logged_in = await scraper.login(page, email, password)
-                if not logged_in:
-                    print(f"Не вдалося увійти для акаунта {email}, пропускаємо")
-                    continue
+                if not await scraper.login(page, email, password):
+                    print(f"⚠️ Помилка логіну: {email}")
+                    return None
+                return context
+            except Exception as e:
+                print(f"🚨 Помилка логіну {email}: {str(e)[:100]}...")
+                await context.close()
+                return None
+
+        async def process_notifications(context, user_id):
+            """Обробка сповіщень в окремій вкладці"""
+            page = await context.new_page()
+            try:
+                await scraper.scrape_subscribed_notifications(page, user_id, "subscribed", "https://onlyfans.com/my/notifications/subscribed")
                 await scraper.scrape_profile_posts(page, user_id)
-                await scraper.process_notifications(page, user_id, "subscribed", "https://onlyfans.com/my/notifications/subscribed")
-                await scraper.process_notifications(page, user_id, "tags", "https://onlyfans.com/my/notifications/tags")
+            finally:
+                await page.close()
+
+        async def process_analytics(context, user_id):
+            """Обробка аналітики в окремій вкладці"""
+            page = await context.new_page()
+            try:
                 await scraper.process_tracking_links_page(page, user_id)
                 await scraper.process_engagement_page(page, user_id)
                 await scraper.process_queue_page(page, user_id)
-            except Exception as e:
-                print(f"Помилка при обробці акаунта {email}: {e}")
+                await scraper.scrape_subscribed_notifications(page, user_id, "tags", "https://onlyfans.com/my/notifications/tags")
+
             finally:
                 await page.close()
+
+        # Обробка користувачів
+        for user_id, email, password in all_users:
+            try:
+                # 1. Вкладка логіну
+                context = await login_tab(user_id, email, password)
+                if not context:
+                    continue
+
+                # 2. Паралельна обробка в окремих вкладках
+                await asyncio.gather(
+                    process_notifications(context, user_id),
+                    process_analytics(context, user_id),
+                    return_exceptions=True
+                )
+
+                print(f"✅ Успішно оброблено {email}")
+            except Exception as e:
+                print(f"🔴 Критична помилка для {email}: {str(e)[:100]}...")
+            finally:
+                await context.close()
+
         await browser.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main()) 
