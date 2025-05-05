@@ -36,3 +36,35 @@ class PasswordChangeForm(forms.Form):
             raise forms.ValidationError("Passwords don't match")
 
         return cleaned_data
+
+
+from django import forms
+from django_select2.forms import Select2MultipleWidget, Select2Widget
+from .models import Assistant, Tag
+
+
+class AssistantForm(forms.ModelForm):
+    class Meta:
+        model = Assistant
+        fields = ['name']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Введіть ім\'я асистента'
+            })
+        }
+
+
+class TagForm(forms.ModelForm):
+    assistants = forms.ModelMultipleChoiceField(
+        queryset=Assistant.objects.all(),
+        widget=Select2MultipleWidget(attrs={
+            'class': 'form-control',
+            'data-placeholder': 'Оберіть асистентів'
+        }),
+        required=False
+    )
+
+    class Meta:
+        model = Tag
+        fields = ['name']

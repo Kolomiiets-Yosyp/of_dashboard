@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container">
+    <h2>Редагування асистента</h2>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">Зберегти</button>
+        <a href="{% url 'dashboard:assistants' request.user.id %}" class="btn btn-secondary">Скасувати</a>
+    </form>
+</div>
+{% endblock %}

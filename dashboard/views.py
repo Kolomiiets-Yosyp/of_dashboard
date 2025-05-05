@@ -122,10 +122,12 @@ def dashboard(request):
 
     return render(request, 'dashboard/dashboard.html', context)
 
+
 def user_dashboard(request, user_id):
     print("&&&&&&&")
     user = get_object_or_404(Users, pk=user_id)
     start_date, end_date = get_date_range()
+
     # Posts statistics for the specific user
     posts_stats = PostStatistic.objects.filter(user=user, date__range=[start_date.date(), end_date.date()])
     posts_df = pd.DataFrame(list(posts_stats.values('date', 'post_count')))
@@ -201,13 +203,8 @@ def user_dashboard(request, user_id):
         notification_type='tags',
         notification_time__date=today
     ).count()
-    post_tags = set(PostTags.objects.filter(user=user).values_list('tag_username', flat=True))
-    notification_tags = set(Notification.objects.filter(
-        user=user,
-        notification_type='tags'
-    ).values_list('username', flat=True))
 
-    # Об'єднуємо всі теги і сортуємо їх
+    # Отримуємо теги з постів з часом останньої появи
     post_tags_data = PostTags.objects.filter(user=user).values(
         'tag_username'
     ).annotate(
@@ -231,21 +228,67 @@ def user_dashboard(request, user_id):
     # Об'єднуємо всі теги
     all_tags = sorted(set(post_tags.keys()).union(set(notification_tags.keys())))
 
+    # Отримуємо всі теги з бази даних, які є в нашому списку
+    tags_from_db = Tag.objects.filter(name__in=all_tags).prefetch_related('assistants')
+
+    # Створюємо словник для швидкого пошуку тегів та їх асистентів
+    tag_assistants = {}
+    for tag in tags_from_db:
+        assistants = [assistant.name for assistant in tag.assistants.all()]
+        tag_assistants[tag.name] = assistants
+
     # Формуємо дані для таблиці
     tags_comparison = []
-    for tag in all_tags:
-        post_time = post_tags.get(tag)
-        notification_time = notification_tags.get(tag)
+    # У view додайте розділення тегів на ті, що мають асистентів і ті, що не мають
+    assistants_with_tags = Assistant.objects.filter(tags__name__in=all_tags).distinct().prefetch_related('tags')
 
-        tags_comparison.append({
-            'tag': tag,
-            'post_time': post_time,
-            'notification_time': notification_time,
-            'post_class': 'bg-success' if post_time else '',
-            'notification_class': 'bg-success' if notification_time else '',
-            'post_missing': not post_time and notification_time,
-            'notification_missing': post_time and not notification_time
-        })
+    # Групуємо теги по асистентах
+    assistants_data = []
+    for assistant in assistants_with_tags:
+        assistant_tags = []
+        for tag in assistant.tags.all():
+            if tag.name in all_tags:  # Перевіряємо, чи тег є в нашому списку
+                post_time = post_tags.get(tag.name)
+                notification_time = notification_tags.get(tag.name)
+
+                assistant_tags.append({
+                    'name': tag.name,
+                    'post_time': post_time,
+                    'notification_time': notification_time,
+                    'post_class': 'bg-success' if post_time else '',
+                    'notification_class': 'bg-success' if notification_time else '',
+                    'post_missing': not post_time and notification_time,
+                    'notification_missing': post_time and not notification_time,
+                })
+
+        if assistant_tags:  # Додаємо тільки асистентів з тегами
+            assistants_data.append({
+                'assistant': assistant.name,
+                'assistant_id': assistant.id,
+                'tags': assistant_tags
+            })
+
+    # Теги без асистентів
+    tags_without_assistants = []
+    # Отримуємо всі теги, які вже належать асистентам
+    assistant_tags_set = {t['name'] for a in assistants_data for t in a['tags']}
+
+    for tag in all_tags:
+        if tag not in assistant_tags_set:
+            post_time = post_tags.get(tag)
+            notification_time = notification_tags.get(tag)
+
+            tags_without_assistants.append({
+                'tag': tag,
+                'post_time': post_time,
+                'notification_time': notification_time,
+                'post_class': 'bg-success' if post_time else '',
+                'notification_class': 'bg-success' if notification_time else '',
+                'post_missing': not post_time and notification_time,
+                'notification_missing': post_time and not notification_time,
+                'has_assistant': False
+            })
+
     context = {
         'user': user.name,
         'id': user.id,
@@ -260,6 +303,8 @@ def user_dashboard(request, user_id):
         'post_tags_count': len(post_tags),
         'notification_tags_count': len(notification_tags),
         'common_tags_count': len(set(post_tags.keys()) & set(notification_tags.keys())),
+        'assistants_data': assistants_data,
+        'tags_without_assistants': tags_without_assistants,
     }
 
     return render(request, 'dashboard/user_dashboard.html', context)
@@ -399,7 +444,7 @@ from django.views.decorators.http import require_POST
 @require_POST
 def run_script(request):
     try:
-        subprocess.Popen(['python', 'scr.py'])
+        subprocess.Popen(['python', 'scr_playwright.py'])
         return JsonResponse({'status': 'success', 'message': 'Script started!'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
@@ -437,3 +482,156 @@ def delete_user(request, user_id):
     messages.success(request, 'User deleted successfully!')
     return general_dashboard(request)
 
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
+from .models import Assistant, Tag, AssistantTag
+from .forms import AssistantForm, TagForm
+
+from django.core.paginator import Paginator
+from django.db.models import Q
+
+
+def assistants_view(request):
+    # Пошук та фільтрація
+    search_query = request.GET.get('search', '')
+    page_number = request.GET.get('page', 1)
+
+    # Базові запити
+    assistants = Assistant.objects.all()
+    tags = Tag.objects.all()
+
+    # Фільтрація за пошуком
+    if search_query:
+        assistants = assistants.filter(name__icontains=search_query)
+        tags = tags.filter(
+            Q(name__icontains=search_query) |
+            Q(assistants__name__icontains=search_query)
+        ).distinct()
+
+    # Пагінація
+    assistants_paginator = Paginator(assistants.order_by('name'), 10)  # 20 елементів на сторінку
+    tags_paginator = Paginator(tags.order_by('name'), 10)
+
+    try:
+        assistants_page = assistants_paginator.page(page_number)
+        tags_page = tags_paginator.page(page_number)
+    except:
+        assistants_page = assistants_paginator.page(1)
+        tags_page = tags_paginator.page(1)
+
+    # Обробка форм
+    if request.method == 'POST':
+        if 'add_assistant' in request.POST:
+            assistant_form = AssistantForm(request.POST)
+            if assistant_form.is_valid():
+                assistant_form.save()
+                return redirect(reverse('dashboard:assistants') + '?search=' + search_query)
+
+        elif 'add_tag' in request.POST:
+            tag_form = TagForm(request.POST)
+            if tag_form.is_valid():
+                # Створюємо тег
+                tag = tag_form.save()
+
+                # Додаємо зв'язки через проміжну модель
+                AssistantTag.objects.bulk_create([
+                    AssistantTag(tag=tag, assistant=assistant)
+                    for assistant in tag_form.cleaned_data['assistants']
+                ])
+
+                return redirect(reverse('dashboard:assistants') + '?search=' + search_query)
+    else:
+        assistant_form = AssistantForm()
+        tag_form = TagForm()
+
+    context = {
+        'assistant_form': assistant_form,
+        'tag_form': tag_form,
+        'assistants': assistants_page,
+        'tags': tags_page,
+        'search_query': search_query,
+    }
+    return render(request, 'dashboard/assistants.html', context)
+
+
+def delete_assistant(request, assistant_id):
+    assistant = get_object_or_404(Assistant, id=assistant_id)
+    assistant.delete()
+    return redirect('dashboard:assistants')
+
+
+def edit_assistant(request, assistant_id):
+    assistant = get_object_or_404(Assistant, id=assistant_id)
+    all_tags = Tag.objects.all()  # Отримуємо всі доступні теги
+
+    if request.method == 'POST':
+        form = AssistantForm(request.POST, instance=assistant)
+        if form.is_valid():
+            assistant = form.save()
+
+            # Оновлюємо теги асистента
+            selected_tags = request.POST.getlist('tags')
+            current_tags = set(tag.id for tag in assistant.tags.all())
+            new_tags = set(int(tag_id) for tag_id in selected_tags)
+
+            # Видаляємо зв'язки, які були видалені
+            for tag_id in current_tags - new_tags:
+                AssistantTag.objects.filter(assistant=assistant, tag_id=tag_id).delete()
+
+            # Додаємо нові зв'язки
+            for tag_id in new_tags - current_tags:
+                AssistantTag.objects.create(assistant=assistant, tag_id=tag_id)
+
+            return redirect('dashboard:assistants')
+    else:
+        form = AssistantForm(instance=assistant)
+
+    context = {
+        'assistant': assistant,
+        'form': form,
+        'all_tags': all_tags,
+    }
+    return render(request, 'dashboard/edit_assistant.html', context)
+
+def delete_tag(request, tag_id):
+    tag = get_object_or_404(Tag, id=tag_id)
+    tag.delete()
+    return redirect('dashboard:assistants')
+
+
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
+from .models import Tag, Assistant, AssistantTag
+
+
+def edit_tag(request, tag_id):
+    tag = get_object_or_404(Tag, id=tag_id)
+    all_assistants = Assistant.objects.all()
+
+    if request.method == 'POST':
+        # Оновлюємо назву тегу
+        tag.name = request.POST.get('name')
+        tag.save()
+
+        # Оновлюємо зв'язки з асистентами
+        selected_assistants = request.POST.getlist('assistants')
+        current_assistants = set(str(a.id) for a in tag.assistants.all())
+        new_assistants = set(selected_assistants)
+
+        # Видаляємо зв'язки, які були видалені
+        for assistant_id in current_assistants - new_assistants:
+            AssistantTag.objects.filter(tag=tag, assistant_id=assistant_id).delete()
+
+        # Додаємо нові зв'язки
+        for assistant_id in new_assistants - current_assistants:
+            AssistantTag.objects.create(tag=tag, assistant_id=assistant_id)
+
+        return redirect('dashboard:assistants')
+
+    context = {
+        'tag': tag,
+        'all_assistants': all_assistants,
+        'form': {'name': {'value': tag.name}},
+    }
+    return render(request, 'dashboard/edit_tag.html', context)

@@ -1,0 +1,191 @@
+{% extends 'base.html' %}
+
+{% block extra_head %}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<style>
+    .select2-container--default .select2-selection--multiple {
+        border: 1px solid #ced4da;
+        min-height: 38px;
+    }
+    .table-container {
+        max-height: 600px;
+        overflow-y: auto;
+    }
+    .fixed-header {
+        position: sticky;
+        top: 0;
+        background: white;
+        z-index: 10;
+    }
+    .badge-hover:hover {
+        opacity: 0.8;
+        cursor: pointer;
+    }
+    .tag-cell {
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Пошук -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <form method="get" class="form-inline">
+                <div class="input-group w-100">
+                    <input type="text" name="search" value="{{ search_query }}"
+                           class="form-control" placeholder="Пошук асистентів або тегів...">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search"></i>
+                    </button>
+                    <a href="{% url 'dashboard:assistants' %}" class="btn btn-secondary ml-2">
+                        <i class="fas fa-sync-alt"></i>
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Основна таблиця асистентів з тегами -->
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header bg-dark text-white d-flex justify-content-between">
+                    <h4 class="mb-0">Assistants</h4>
+                    <span class="badge bg-dark text-light">
+                        {{ assistants.paginator.count }}
+                    </span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-container">
+                        <table class="table table-hover mb-0">
+                            <thead class="fixed-header">
+                                <tr>
+                                    <th width="10%">Assistants</th>
+                                    <th width="60%">TEGS (@)</th>
+                                    <th width="15%">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for assistant in assistants %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ assistant.name }}</strong>
+                                    </td>
+                                    <td class="tag-cell">
+                                        {% for tag in assistant.tags.all %}
+                                        <span onclick="window.location.href='{% url 'dashboard:edit_tag' tag.id %}'" class="badge bg-secondary badge-hover mb-1"
+                                              title="{{ tag.name }}">
+                                            {{ tag.name }}
+                                        </span>
+                                        {% empty %}
+                                        <span class="text-muted">Немає тегів</span>
+                                        {% endfor %}
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <a href="{% url 'dashboard:edit_assistant' assistant.id %}"
+                                               class="btn btn-outline-secondary">
+                                                <i class="fas fa-edit"></i>
+                                            </a>
+                                            <a href="{% url 'dashboard:delete_assistant' assistant.id %}"
+                                               class="btn btn-outline-danger"
+                                               onclick="return confirm('Видалити асистента?')">
+                                                <i class="fas fa-trash"></i>
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    {% include 'dashboard/_pagination.html' with page_obj=assistants %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Додавання нового асистента -->
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0">Додати асистента</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="add_assistant" value="1">
+                        <div class="row g-2">
+                            <div class="col-md-9">
+                                {{ assistant_form.name }}
+                            </div>
+                            <div class="col-md-3">
+                                <button type="submit" class="btn btn-success w-100">
+                                    <i class="fas fa-plus"></i> Додати
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Додавання нового тегу -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0">Додати тег</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="add_tag" value="1">
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-12">
+                                {{ tag_form.name }}
+                            </div>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-9">
+                                {{ tag_form.assistants }}
+                            </div>
+                            <div class="col-md-3">
+                                <button type="submit" class="btn btn-success w-100">
+                                    <i class="fas fa-plus"></i> Додати
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+$(document).ready(function() {
+    // Ініціалізація Select2
+    $('select').select2({
+        width: '100%',
+        placeholder: $(this).data('placeholder'),
+        allowClear: true
+    });
+
+    // Підтвердження видалення
+    $('.btn-danger').on('click', function() {
+        return confirm('Ви впевнені, що хочете видалити цей запис?');
+    });
+});
+</script>
+{% endblock %}
