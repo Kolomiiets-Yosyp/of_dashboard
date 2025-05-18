@@ -57,10 +57,15 @@ WSGI_APPLICATION = 'of_dashboard.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'onlyfans_notifications.db',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'onlyfans',
+        'USER': 'ofuser',
+        'PASSWORD': 'ofpass123',
+        'HOST': '185.177.239.31',
+        'PORT': '5432',
     }
 }
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {

@@ -18,3 +18,4 @@ tenacity~=9.1.2
 packaging~=24.2
 six~=1.17.0
 django_select2
+psycopg2-binary

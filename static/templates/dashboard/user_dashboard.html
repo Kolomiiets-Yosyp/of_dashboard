@@ -103,19 +103,24 @@
     </div>
 </div>
     <!-- Tags Comparison Table -->
-<!-- Tags Comparison Table -->
 <div class="row mt-4">
     <div class="col-12">
         <div class="card stats-card">
             <div class="card-body">
                 <h5 class="card-title">Tags Comparison</h5>
+
+                <!-- Search Box -->
+                <div class="mb-3">
+                    <input type="text" id="tagSearch" class="form-control" placeholder="Search tags..." onkeyup="searchTags()">
+                </div>
+
                 <div class="d-flex justify-content-between mb-3">
                     <span class="badge bg-primary">My Posts Tags: {{ post_tags_count }}</span>
                     <span class="badge bg-success">Common Tags: {{ common_tags_count }}</span>
                     <span class="badge bg-primary">Notification Tags: {{ notification_tags_count }}</span>
                 </div>
                 <div class="table-responsive">
-                    <table class="table table-bordered">
+                    <table class="table table-hover table-bordered" id="tagsTable">
                         <thead>
                             <tr>
                                 <th class="text-center" style="width: 30%">Assistants</th>
@@ -123,96 +128,164 @@
                                 <th class="text-center" style="width: 30%">Tags in Notifications</th>
                             </tr>
                         </thead>
-<tbody>
-    {% for assistant in assistants_data %}
-        <tr class="assistant-row">
-            <td colspan="3" class="bg-light">
-                <strong>{{ assistant.assistant }} (ID: {{ assistant.assistant_id }})</strong>
-            </td>
-        </tr>
-        {% for tag in assistant.tags %}
-            <tr>
-                <td>
-                    <span class="badge bg-primary">{{ assistant.assistant }}</span>
-                </td>
-                <td class="{% if tag.post_missing %}bg-warning{% else %}{{ tag.post_class }}{% endif %}">
-                    {% if tag.post_time %}
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span>@{{ tag.name }}</span>
-                            <small class="text-muted">{{ tag.post_time|date:"Y-m-d H:i" }}</small>
-                        </div>
-                    {% elif tag.post_missing %}
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-muted">(missing)</span>
-                            <small class="text-muted">-</small>
-                        </div>
-                    {% endif %}
-                </td>
-                <td class="{% if tag.notification_missing %}bg-warning{% else %}{{ tag.notification_class }}{% endif %}">
-                    {% if tag.notification_time %}
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span>@{{ tag.name }}</span>
-                            <small class="text-muted">{{ tag.notification_time|date:"Y-m-d H:i" }}</small>
-                        </div>
-                    {% elif tag.notification_missing %}
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-muted">(missing)</span>
-                            <small class="text-muted">-</small>
-                        </div>
-                    {% endif %}
-                </td>
-            </tr>
-        {% endfor %}
-    {% endfor %}
+                        <tbody>
+                            {% for assistant in assistants_data %}
+                                <tr class="assistant-row">
+                                    <td colspan="4" class="bg-light">
+                                        <strong>{{ assistant.assistant }} (ID: {{ assistant.assistant_id }})</strong>
+                                    </td>
+                                </tr>
+                                {% for tag in assistant.tags %}
+                                    <tr class="tag-row">
+                                        <td>
+                                            <span class="badge bg-primary">{{ assistant.assistant }}</span>
+                                        </td>
+                                        <td class="{% if tag.post_missing %}bg-danger{% elif tag.notification_time and tag.post_time and tag.post_time|date:'Y-m-d' != tag.notification_time|date:'Y-m-d' %}bg-warning{% else %}{{ tag.post_class }}{% endif %}">
+                                            {% if tag.post_time %}
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <span class="tag-name">@{{ tag.name }}</span>
+                                                    <small class="text-muted">{{ tag.post_time|date:"Y-m-d H:i" }}</small>
+                                                </div>
+                                            {% elif tag.post_missing %}
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <span class="text-muted">(missing)</span>
+                                                    <small class="text-muted">-</small>
+                                                </div>
+                                            {% endif %}
+                                        </td>
+                                        <td class="{% if tag.notification_missing %}bg-danger{% elif tag.post_time and tag.notification_time and tag.post_time|date:'Y-m-d' != tag.notification_time|date:'Y-m-d' %}bg-warning{% else %}{{ tag.notification_class }}{% endif %}">
+                                            {% if tag.notification_time %}
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <span class="tag-name">@{{ tag.name }}</span>
+                                                    <small class="text-muted">{{ tag.notification_time|date:"Y-m-d H:i" }}</small>
+                                                </div>
+                                            {% elif tag.notification_missing %}
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <span class="text-muted">(missing)</span>
+                                                    <small class="text-muted">-</small>
+                                                </div>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if tag.notification_time and tag.new_followers is not None %}
+                                                <span class="badge bg-info">+{{ tag.new_followers }} followers</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            {% endfor %}
 
-    {% if tags_without_assistants %}
-        <tr class="divider-row">
-            <td colspan="3" class="text-center bg-light">
-                <hr>
-                <span class="text-muted">Теги без асистентів</span>
-                <hr>
-            </td>
-        </tr>
+                            {% if tags_without_assistants %}
+                                <tr class="divider-row">
+                                    <td colspan="4" class="text-center bg-light">
+                                        <hr>
+                                        <span class="text-muted">Теги без асистентів</span>
+                                        <hr>
+                                    </td>
+                                </tr>
 
-        {% for tag in tags_without_assistants %}
-            <tr>
-                <td>
-                    <span class="text-muted">Немає асистента</span>
-                </td>
-                <td class="{% if tag.post_missing %}bg-warning{% else %}{{ tag.post_class }}{% endif %}">
-                    {% if tag.post_time %}
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span>@{{ tag.tag }}</span>
-                            <small class="text-muted">{{ tag.post_time|date:"Y-m-d H:i" }}</small>
-                        </div>
-                    {% elif tag.post_missing %}
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-muted">(missing)</span>
-                            <small class="text-muted">-</small>
-                        </div>
-                    {% endif %}
-                </td>
-                <td class="{% if tag.notification_missing %}bg-warning{% else %}{{ tag.notification_class }}{% endif %}">
-                    {% if tag.notification_time %}
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span>@{{ tag.tag }}</span>
-                            <small class="text-muted">{{ tag.notification_time|date:"Y-m-d H:i" }}</small>
-                        </div>
-                    {% elif tag.notification_missing %}
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-muted">(missing)</span>
-                            <small class="text-muted">-</small>
-                        </div>
-                    {% endif %}
-                </td>
-            </tr>
-        {% endfor %}
-    {% endif %}
-</tbody>
+                                {% for tag in tags_without_assistants %}
+                                    <tr class="tag-row">
+                                        <td>
+                                            <span class="text-muted">Немає асистента</span>
+                                        </td>
+                                        <td class="{% if tag.post_missing %}bg-danger{% elif tag.notification_time and tag.post_time and tag.post_time|date:'Y-m-d' != tag.notification_time|date:'Y-m-d' %}bg-warning{% else %}{{ tag.post_class }}{% endif %}">
+                                            {% if tag.post_time %}
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <span class="tag-name">@{{ tag.tag }}</span>
+                                                    <small class="text-muted">{{ tag.post_time|date:"Y-m-d H:i" }}</small>
+                                                </div>
+                                            {% elif tag.post_missing %}
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <span class="text-muted">(missing)</span>
+                                                    <small class="text-muted">-</small>
+                                                </div>
+                                            {% endif %}
+                                        </td>
+                                        <td class="{% if tag.notification_missing %}bg-danger{% elif tag.post_time and tag.notification_time and tag.post_time|date:'Y-m-d' != tag.notification_time|date:'Y-m-d' %}bg-warning{% else %}{{ tag.notification_class }}{% endif %}">
+                                            {% if tag.notification_time %}
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <span class="tag-name">@{{ tag.tag }}</span>
+                                                    <small class="text-muted">{{ tag.notification_time|date:"Y-m-d H:i" }}</small>
+                                                </div>
+                                            {% elif tag.notification_missing %}
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <span class="text-muted">(missing)</span>
+                                                    <small class="text-muted">-</small>
+                                                </div>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if tag.notification_time and tag.new_followers is not None %}
+                                                <span class="badge bg-info">+{{ tag.new_followers }} followers</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            {% endif %}
+                        </tbody>
                     </table>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+function searchTags() {
+    const input = document.getElementById('tagSearch');
+    const filter = input.value.toUpperCase();
+    const table = document.getElementById('tagsTable');
+    const rows = table.getElementsByClassName('tag-row');
+
+    for (let i = 0; i < rows.length; i++) {
+        const tagNames = rows[i].getElementsByClassName('tag-name');
+        let found = false;
+
+        for (let j = 0; j < tagNames.length; j++) {
+            const txtValue = tagNames[j].textContent || tagNames[j].innerText;
+            if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                found = true;
+                break;
+            }
+        }
+
+        rows[i].style.display = found ? "" : "none";
+    }
+
+    // Show/hide assistant headers based on visible tags
+    const assistantRows = table.getElementsByClassName('assistant-row');
+    for (let i = 0; i < assistantRows.length; i++) {
+        const nextRow = assistantRows[i].nextElementSibling;
+        let hasVisibleTags = false;
+
+        while (nextRow && nextRow.classList.contains('tag-row')) {
+            if (nextRow.style.display !== 'none') {
+                hasVisibleTags = true;
+                break;
+            }
+            nextRow = nextRow.nextElementSibling;
+        }
+
+        assistantRows[i].style.display = hasVisibleTags ? "" : "none";
+    }
+
+    // Show/hide divider for tags without assistants
+    const dividerRow = table.querySelector('.divider-row');
+    if (dividerRow) {
+        let hasVisibleTags = false;
+        let nextRow = dividerRow.nextElementSibling;
+
+        while (nextRow && nextRow.classList.contains('tag-row')) {
+            if (nextRow.style.display !== 'none') {
+                hasVisibleTags = true;
+                break;
+            }
+            nextRow = nextRow.nextElementSibling;
+        }
+
+        dividerRow.style.display = hasVisibleTags ? "" : "none";
+    }
+}
+</script>
 {% endblock %}

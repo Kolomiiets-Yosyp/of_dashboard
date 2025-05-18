@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
-from .models import Notification, PostStatistic, ScheduledPost, Users, PostTags
+from .models import Notification, PostStatistic, ScheduledPost, Users, PostTags, TrackingLinkStats
 
 
 def get_date_range(days=10):
@@ -26,119 +26,34 @@ def create_chart(df, title, y_label):
     return fig.to_html(full_html=False)
 
 
-def dashboard(request):
-    start_date, end_date = get_date_range()
 
-    # Posts statistics
-    posts_stats = PostStatistic.objects.filter(
-        date__range=[start_date.date(), end_date.date()]
-    ).order_by('date')
-    posts_df = pd.DataFrame(list(posts_stats.values('date', 'post_count')))
-    if not posts_df.empty:
-        posts_df.set_index('date', inplace=True)
-        posts_df.rename(columns={'post_count': 'value'}, inplace=True)
-        posts_chart = create_chart(posts_df, 'Posts Made Over Time', 'Number of Posts')
-    else:
-        posts_chart = None
 
-    # Followers statistics
-    followers = Notification.objects.filter(
-        notification_type='subscribed',
-        notification_time__range=[start_date, end_date]
-    ).annotate(
-        date=TruncDate('notification_time')
-    ).values('date').annotate(
-        count=Count('id')
-    ).order_by('date')
 
-    followers_df = pd.DataFrame(list(followers))
-    if not followers_df.empty:
-        followers_df.set_index('date', inplace=True)
-        followers_df.rename(columns={'count': 'value'}, inplace=True)
-        followers_chart = create_chart(followers_df, 'New Followers Over Time', 'Number of Followers')
-    else:
-        followers_chart = None
-
-    # Tags statistics
-    tags = Notification.objects.filter(
-        notification_type='tags',
-        notification_time__range=[start_date, end_date]
-    ).annotate(
-        date=TruncDate('notification_time')
-    ).values('date').annotate(
-        count=Count('id')
-    ).order_by('date')
-
-    tags_df = pd.DataFrame(list(tags))
-    if not tags_df.empty:
-        tags_df.set_index('date', inplace=True)
-        tags_df.rename(columns={'count': 'value'}, inplace=True)
-        tags_chart = create_chart(tags_df, 'Mentions Over Time', 'Number of Mentions')
-    else:
-        tags_chart = None
-
-    # Today's statistics
-    today = datetime.now().date()
-    yesterday = today - timedelta(days=1)
-
-    posts_today = PostStatistic.objects.filter(date=today).first()
-    posts_today = posts_today.post_count if posts_today else 0
-
-    scheduled_yesterday = ScheduledPost.objects.filter(date=yesterday).first()
-    scheduled_yesterday = scheduled_yesterday.post_count if scheduled_yesterday else 0
-
-    posts_difference = posts_today - scheduled_yesterday
-    if posts_difference < 0 or posts_difference == 0:
-        posts_difference = scheduled_yesterday
-    scheduled_posts = ScheduledPost.objects.filter(
-        date__gte=today
-    ).order_by('date')
-
-    followers_today = Notification.objects.filter(
-        notification_type='subscribed',
-        notification_time__date=today
-    ).count()
-
-    followers_yesterday = Notification.objects.filter(
-        notification_type='subscribed',
-        notification_time__date=yesterday
-    ).count()
-
-    tags_today = Notification.objects.filter(
-        notification_type='tags',
-        notification_time__date=today
-    ).count()
-
-    context = {
-        'posts_difference': posts_difference,
-        'scheduled_posts': scheduled_posts,
-        'followers_today': followers_today,
-        'followers_yesterday': followers_yesterday,
-        'tags_today': tags_today,
-        'posts_chart': posts_chart,
-        'followers_chart': followers_chart,
-        'tags_chart': tags_chart,
-    }
-
-    return render(request, 'dashboard/dashboard.html', context)
-
+from django.shortcuts import render, get_object_or_404
+from django.db.models import Count, Max, Q
+from datetime import datetime, timedelta
+from django.db.models.functions import TruncDate
+import pandas as pd
+from .models import Users, PostStatistic, Notification, ScheduledPost, PostTags, Assistant, Tag
 
 def user_dashboard(request, user_id):
-    print("&&&&&&&")
+    # Отримуємо користувача
     user = get_object_or_404(Users, pk=user_id)
     start_date, end_date = get_date_range()
 
-    # Posts statistics for the specific user
-    posts_stats = PostStatistic.objects.filter(user=user, date__range=[start_date.date(), end_date.date()])
+    # Статистика постів
+    posts_stats = PostStatistic.objects.filter(
+        user=user,
+        date__range=[start_date.date(), end_date.date()]
+    )
     posts_df = pd.DataFrame(list(posts_stats.values('date', 'post_count')))
+    posts_chart = None
     if not posts_df.empty:
         posts_df.set_index('date', inplace=True)
         posts_df.rename(columns={'post_count': 'value'}, inplace=True)
         posts_chart = create_chart(posts_df, f"Posts Made by {user.login} Over Time", 'Number of Posts')
-    else:
-        posts_chart = None
 
-    # Followers statistics for the specific user
+    # Статистика підписників
     followers = Notification.objects.filter(
         user=user,
         notification_type='subscribed',
@@ -150,14 +65,13 @@ def user_dashboard(request, user_id):
     ).order_by('date')
 
     followers_df = pd.DataFrame(list(followers))
+    followers_chart = None
     if not followers_df.empty:
         followers_df.set_index('date', inplace=True)
         followers_df.rename(columns={'count': 'value'}, inplace=True)
         followers_chart = create_chart(followers_df, f"New Followers of {user.login} Over Time", 'Number of Followers')
-    else:
-        followers_chart = None
 
-    # Tags statistics for the specific user
+    # Статистика тегів
     tags = Notification.objects.filter(
         user=user,
         notification_type='tags',
@@ -169,29 +83,29 @@ def user_dashboard(request, user_id):
     ).order_by('date')
 
     tags_df = pd.DataFrame(list(tags))
+    tags_chart = None
     if not tags_df.empty:
         tags_df.set_index('date', inplace=True)
         tags_df.rename(columns={'count': 'value'}, inplace=True)
         tags_chart = create_chart(tags_df, f"Mentions of {user.login} Over Time", 'Number of Mentions')
-    else:
-        tags_chart = None
 
-    # Today's statistics for the specific user
+    # Сьогоднішня статистика
     today = datetime.now().date()
-    posts_today = PostStatistic.objects.filter(user=user, date=today).first()
-    posts_today = posts_today.post_count if posts_today else 0
+    posts_today = PostTags.objects.filter(user=user,
+                                          post_time__date=today).count()  # posts_today = posts_today.post_count if posts_today else 0
+    #posts_today = posts_today.post_count if posts_today else 0
 
-    scheduled_yesterday = ScheduledPost.objects.filter(user=user, date=today - timedelta(days=1)).first()
-    scheduled_yesterday = scheduled_yesterday.post_count if scheduled_yesterday else 0
 
-    posts_difference = posts_today - scheduled_yesterday
-    if posts_difference < 0 or posts_difference == 0:
-        posts_difference = scheduled_yesterday
+    posts_difference = posts_today
 
-    # Get scheduled posts data for the specific user
-    scheduled_posts = ScheduledPost.objects.filter(user=user, date__gte=today).order_by('date')
 
-    # Followers and Tags today
+    # Заплановані пости
+    scheduled_posts = ScheduledPost.objects.filter(
+        user=user,
+        date__gte=today
+    ).order_by('date')
+
+    # Підписники та теги за сьогодні
     followers_today = Notification.objects.filter(
         user=user,
         notification_type='subscribed',
@@ -204,14 +118,14 @@ def user_dashboard(request, user_id):
         notification_time__date=today
     ).count()
 
-    # Отримуємо теги з постів з часом останньої появи
+    # Отримуємо теги з постів
     post_tags_data = PostTags.objects.filter(user=user).values(
         'tag_username'
     ).annotate(
         last_time=Max('post_time')
     ).order_by('tag_username')
 
-    # Отримуємо теги зі сповіщень з часом останньої появи
+    # Отримуємо теги зі сповіщень з кількістю підписників
     notification_tags_data = Notification.objects.filter(
         user=user,
         notification_type='tags'
@@ -221,14 +135,31 @@ def user_dashboard(request, user_id):
         last_time=Max('notification_time')
     ).order_by('username')
 
+    # Додаємо інформацію про нових підписників
+    for tag in notification_tags_data:
+        notification_time = tag['last_time']
+        new_followers = Notification.objects.filter(
+            user=user,
+            notification_type='subscribed',
+            notification_time__gte=notification_time,
+            notification_time__lte=notification_time + timedelta(minutes=900)
+        ).count()
+        tag['new_followers'] = new_followers
+
     # Створюємо словники для швидкого доступу
     post_tags = {item['tag_username']: item['last_time'] for item in post_tags_data}
-    notification_tags = {item['username']: item['last_time'] for item in notification_tags_data}
+    notification_tags = {
+        item['username']: {
+            'last_time': item['last_time'],
+            'new_followers': item['new_followers']
+        }
+        for item in notification_tags_data
+    }
 
     # Об'єднуємо всі теги
     all_tags = sorted(set(post_tags.keys()).union(set(notification_tags.keys())))
 
-    # Отримуємо всі теги з бази даних, які є в нашому списку
+    # Отримуємо всі теги з бази даних
     tags_from_db = Tag.objects.filter(name__in=all_tags).prefetch_related('assistants')
 
     # Створюємо словник для швидкого пошуку тегів та їх асистентів
@@ -237,31 +168,34 @@ def user_dashboard(request, user_id):
         assistants = [assistant.name for assistant in tag.assistants.all()]
         tag_assistants[tag.name] = assistants
 
-    # Формуємо дані для таблиці
-    tags_comparison = []
-    # У view додайте розділення тегів на ті, що мають асистентів і ті, що не мають
-    assistants_with_tags = Assistant.objects.filter(tags__name__in=all_tags).distinct().prefetch_related('tags')
+    # Отримуємо асистентів з тегами
+    assistants_with_tags = Assistant.objects.filter(
+        tags__name__in=all_tags
+    ).distinct().prefetch_related('tags')
 
     # Групуємо теги по асистентах
     assistants_data = []
     for assistant in assistants_with_tags:
         assistant_tags = []
         for tag in assistant.tags.all():
-            if tag.name in all_tags:  # Перевіряємо, чи тег є в нашому списку
+            if tag.name in all_tags:
                 post_time = post_tags.get(tag.name)
-                notification_time = notification_tags.get(tag.name)
+                notification_data = notification_tags.get(tag.name, {})
+                notification_time = notification_data.get('last_time')
+                new_followers = notification_data.get('new_followers')
 
                 assistant_tags.append({
                     'name': tag.name,
                     'post_time': post_time,
                     'notification_time': notification_time,
+                    'new_followers': new_followers,
                     'post_class': 'bg-success' if post_time else '',
                     'notification_class': 'bg-success' if notification_time else '',
                     'post_missing': not post_time and notification_time,
                     'notification_missing': post_time and not notification_time,
                 })
 
-        if assistant_tags:  # Додаємо тільки асистентів з тегами
+        if assistant_tags:
             assistants_data.append({
                 'assistant': assistant.name,
                 'assistant_id': assistant.id,
@@ -270,18 +204,20 @@ def user_dashboard(request, user_id):
 
     # Теги без асистентів
     tags_without_assistants = []
-    # Отримуємо всі теги, які вже належать асистентам
     assistant_tags_set = {t['name'] for a in assistants_data for t in a['tags']}
 
     for tag in all_tags:
         if tag not in assistant_tags_set:
             post_time = post_tags.get(tag)
-            notification_time = notification_tags.get(tag)
+            notification_data = notification_tags.get(tag, {})
+            notification_time = notification_data.get('last_time')
+            new_followers = notification_data.get('new_followers')
 
             tags_without_assistants.append({
                 'tag': tag,
                 'post_time': post_time,
                 'notification_time': notification_time,
+                'new_followers': new_followers,
                 'post_class': 'bg-success' if post_time else '',
                 'notification_class': 'bg-success' if notification_time else '',
                 'post_missing': not post_time and notification_time,
@@ -299,7 +235,6 @@ def user_dashboard(request, user_id):
         'posts_chart': posts_chart,
         'followers_chart': followers_chart,
         'tags_chart': tags_chart,
-        'tags_comparison': tags_comparison,
         'post_tags_count': len(post_tags),
         'notification_tags_count': len(notification_tags),
         'common_tags_count': len(set(post_tags.keys()) & set(notification_tags.keys())),
@@ -372,15 +307,14 @@ def general_dashboard(request):
             tags_chart = None
 
         # Today's statistics for the user
-        posts_today = PostStatistic.objects.filter(user=user, date=today).first()
-        posts_today = posts_today.post_count if posts_today else 0
+        posts_today = PostTags.objects.filter(user=user, post_time__date=today).count()        #posts_today = posts_today.post_count if posts_today else 0
 
-        scheduled_yesterday = ScheduledPost.objects.filter(user=user, date=yesterday).first()
-        scheduled_yesterday = scheduled_yesterday.post_count if scheduled_yesterday else 0
+        #scheduled_yesterday = ScheduledPost.objects.filter(user=user, date=yesterday).first()
+        #scheduled_yesterday = scheduled_yesterday.post_count if scheduled_yesterday else 0
 
-        posts_difference = posts_today - scheduled_yesterday
-        if posts_difference < 0 or posts_difference == 0:
-            posts_difference = scheduled_yesterday
+        posts_difference = posts_today
+        #if posts_difference < 0 or posts_difference == 0:
+         #   posts_difference = scheduled_yesterday
         scheduled_posts = ScheduledPost.objects.filter(
             user=user, date__gte=today
         ).aggregate(total=Sum('post_count'))['total'] or 0
@@ -402,7 +336,9 @@ def general_dashboard(request):
             notification_type='tags',
             notification_time__date=today
         ).count()
-
+        tracking_subscriptions = TrackingLinkStats.objects.filter(
+            user=user
+        ).aggregate(total_clicks=Sum('click_count'))['total_clicks']
         user_data.append({
             'username': user.name,
             'id': user.id,  # Переконайтеся, що передаєте id користувач
@@ -411,6 +347,7 @@ def general_dashboard(request):
             'followers_today': followers_today,
             'followers_yesterday': followers_yesterday,
             'tags_today': tags_today,
+            'tracking_subscriptions': tracking_subscriptions,
             'posts_chart': posts_chart,
             'followers_chart': followers_chart,
             'tags_chart': tags_chart,
